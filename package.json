@@ -4,7 +4,9 @@
     "private": true,
     "dependencies": {
         "@material-ui/core": "^1.4.3",
+        "lodash": "^4.17.11",
         "moment": "^2.22.2",
+        "prop-types": "^15.6.2",
         "react": "^16.4.1",
         "react-dom": "^16.4.1",
         "react-redux": "^5.0.7",
@@ -13,7 +15,7 @@
         "redux-thunk": "^2.3.0"
     },
     "scripts": {
-        "start": "cross-env PORT=3003 react-scripts start",
+        "start": "cross-env PORT=3004 react-scripts start",
         "build": "react-scripts build",
         "test": "react-scripts test --env=jsdom",
         "eject": "react-scripts eject",

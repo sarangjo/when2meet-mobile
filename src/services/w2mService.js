@@ -1,5 +1,5 @@
 // @flow
-export const w2mService = {
+export default {
     getAvailability,
     login,
     saveTimes,
