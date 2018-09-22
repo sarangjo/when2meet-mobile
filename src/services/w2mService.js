@@ -10,9 +10,22 @@ function getAvailability(id, code) {
     // POST(https://when2meet.com/AvailabilityGrids.php)
     // Parse response HTML
 
+    let html;
+
+    let request = new Request("http://when2meet.com/AvailabilityGrids.php?id=6939716&lel=nrhEh");
+    let myInit = {
+      method: 'POST',
+      mode: 'cors'
+    };
+
+    return fetch(request, myInit).then(function(response) {
+      console.log(response);
+    });
+
     // Return availability of the form:
     // [
     //     "id": USER_ID,
+    //     "name": USER_NAME,
     //     "availability":
     //     [
     //         {

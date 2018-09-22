@@ -45,3 +45,5 @@ What exactly are the values for "slots"? That's all that's left, I feel like tha
 1530418500 is June 30, 9:15-9:30
 1530419400 is June 30, 9:30pm-9:45pm
 1530420300 is June 30, 9:45pm-10:00pm
+
+- [ ] Need to parse out AvailabilityGrids.php to get the start/stop timestamp too. fuhhhhhhhh
