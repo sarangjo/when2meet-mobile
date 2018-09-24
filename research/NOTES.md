@@ -47,3 +47,6 @@ What exactly are the values for "slots"? That's all that's left, I feel like tha
 1530420300 is June 30, 9:45pm-10:00pm
 
 - [ ] Need to parse out AvailabilityGrids.php to get the start/stop timestamp too. fuhhhhhhhh
+
+### Get people's availability
+AvailableAtSlot - array of arrays
