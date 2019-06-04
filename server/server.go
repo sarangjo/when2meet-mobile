@@ -37,6 +37,7 @@ const (
 	parserFoundSlotsStart      = iota
 )
 
+// Represents a single When2Meet "instance". Identified by an id and a code.
 type instance struct {
 	id   uint
 	code string
@@ -56,6 +57,8 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 
 	var availabilityJs []string
 	state := start
+
+	// Trying two approaches: tokenizing and parsing. As of now, parsing works better.
 
 	// Tokenize
 	doc, err := html.Parse(resp.Body)
