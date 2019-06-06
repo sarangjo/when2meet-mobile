@@ -1,24 +1,32 @@
 package main
 
 import (
-	"fmt"
-	"math"
 	"net/http"
-	"regexp"
+	"fmt"
+	// "math"
 	"strconv"
 	"strings"
-
-	"github.com/msoap/byline"
 	"golang.org/x/net/html"
+	"github.com/emirpasic/gods/sets/treeset"
+	"github.com/emirpasic/gods/utils"
 )
 
-// AvailabilityResponse represents the response to the GetAvailability request
-type AvailabilityResponse struct {
-	avail          []availability
-	startTimestamp uint64
-	nOfTimeslots   uint64 // # of 15 minute intervals
+// TEST debug
+const TEST = true
+
+// Represents a single When2Meet "instance". Identified by an id and a code.
+type instance struct {
+	id   uint
+	code string
+	timeslots	[]uint64 // In-order 15-minute intervals
 }
 
+// Represents the response to the GetAvailability request
+type availabilityResponse struct {
+	avail          []availability
+}
+
+// Per-user availability
 type availability struct {
 	id        int
 	name      string
@@ -37,15 +45,11 @@ const (
 	parserFoundSlotsStart      = iota
 )
 
-// Represents a single When2Meet "instance". Identified by an id and a code.
-type instance struct {
-	id   uint
-	code string
-}
-
 // Returns availability, start timestamp, and number of 15-minute slots
-func getAvailability(i instance) (ar AvailabilityResponse, err error) {
-	url := fmt.Sprintf("https://when2meet.com/AvailabilityGrids.php?id=%d&code=%s", i.id, i.code)
+func getAvailability(inst *instance) (ar availabilityResponse, err error) {
+	fmt.Println("Getting availability grids...")
+
+	url := fmt.Sprintf("https://when2meet.com/AvailabilityGrids.php?id=%d&code=%s", inst.id, inst.code)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -55,20 +59,23 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 	}
 	defer resp.Body.Close()
 
+	// Variables to collect data
 	var availabilityJs []string
 	state := start
+	availabilityTimestamps := treeset.NewWith(utils.UInt64Comparator)
 
-	// Trying two approaches: tokenizing and parsing. As of now, parsing works better.
-
-	// Tokenize
 	doc, err := html.Parse(resp.Body)
-
 	if err != nil {
 		// error
 		return ar, err
 	}
 	// Returns whether to continue parsing the tree
 	var f func(*html.Node) (bool, error)
+	// 1. The top-level <script> tag in the response contains information about availability.
+	// (parserFoundScript)
+	// 2. The div with id "YouGridSlots" contains a div for each 15-minute timeslot, which in turn
+	// have id's starting with "YouTime" followed by the Unix timestamp. From this we can compute
+	// all of the timestamps that are in this when2meet.
 	f = func(n *html.Node) (bool, error) {
 		switch state {
 		case start:
@@ -94,23 +101,18 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 			break
 		case parserFoundSlotsStart:
 			if n.Type == html.ElementNode && n.Data == "div" {
-				found := false
-				var temp uint64
+				validTimeslot := false
+				var timestamp uint64
 				for _, attr := range n.Attr {
 					if attr.Key == "id" && strings.Index(attr.Val, "YouTime") >= 0 {
-						found = true
+						validTimeslot = true
 					} else if attr.Key == "data-time" {
-						temp, err = strconv.ParseUint(attr.Val, 10, 64)
-						if err != nil {
-							// error
-							return false, err
-						}
+						timestamp, _ = strconv.ParseUint(attr.Val, 10, 64)
 					}
 				}
 
-				if found {
-					ar.startTimestamp = temp
-					return false, nil
+				if validTimeslot {
+					availabilityTimestamps.Add(timestamp)
 				}
 			}
 			break
@@ -132,7 +134,14 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 		return ar, err
 	}
 
-	// Custom parsing.
+	// Transfer set into array
+	for _, ts := range availabilityTimestamps.Values() {
+		if tsUint, ok := ts.(uint64); ok {
+			inst.timeslots = append(inst.timeslots, tsUint)
+		}
+	}
+
+	// Custom parsing through the availabilityJs content in the <script> we parsed out
 	// 1. Id and name
 	stmts := strings.Split(availabilityJs[0], ";")
 	ar.avail = make([]availability, len(stmts)/2)
@@ -154,7 +163,7 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 		line := availabilityJs[hexIndex]
 		if strings.Index(line, "hexAvailability") >= 0 {
 			// TODO
-			ar.nOfTimeslots = 4 * uint64(len(strings.Replace(line, "// hexAvailability: 0", "", 1)))
+			// ar.nOfTimeslots = 4 * uint64(len(strings.Replace(line, "// hexAvailability: 0", "", 1)))
 			break
 		}
 	}
@@ -162,7 +171,9 @@ func getAvailability(i instance) (ar AvailabilityResponse, err error) {
 	return ar, nil
 }
 
-func addTimestamps(ins instance, ar AvailabilityResponse) {
+// TODO not sure what this is even doing
+/*
+func addTimestamps(ins instance, ar availabilityResponse) {
 	url := fmt.Sprintf("https://when2meet.com/?%d-%s", ins.id, ins.code)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -222,15 +233,53 @@ func addTimestamps(ins instance, ar AvailabilityResponse) {
 
 	// TODO
 }
+*/
+
+var kinspireWhen2Meet = instance{6939716, "nrhEh", make([]uint64, 0)}
 
 func main() {
-	// day := instance{6785667, "7INRG"}
-	date := instance{6939716, "nrhEh"}
+	/*
+	reader := bufio.NewReader(os.Stdin)
 
-	ar, err := getAvailability(date)
+	// ID
+	fmt.Print("id: ")
+	idString, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Invalid ID");
+		os.Exit(1)
+	}
+	if TEST {
+		idString = "6939716"
+	}
+	id, err := strconv.ParseUint(idString, 10, 64)
+	if err != nil {
+		fmt.Println("ID needs to be a valid number")
+		os.Exit(1)
+	}
+
+	// Code
+	fmt.Print("code: ")
+	code, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Invalid code");
+		os.Exit(1)
+	}
+	if TEST {
+		code = "nrhEh"
+	}
+	*/
+
+	// Set up instance for this run
+	inst := kinspireWhen2Meet // instance{uint(id), code, make([]uint64, 512)}
+
+	ar, err := getAvailability(&inst)
 	if err != nil {
 		fmt.Println(err)
 	}
-	addTimestamps(date, ar)
+
+	fmt.Println("Full timestamps:")
+	fmt.Println(inst.timeslots)
+
+	// addTimestamps(date, ar)
 	fmt.Println(ar)
 }

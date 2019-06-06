@@ -51,3 +51,9 @@ What exactly are the values for "slots"? That's all that's left, I feel like tha
 
 ### Get people's availability
 AvailableAtSlot - array of arrays
+
+Ah shit. The timeslots in a when2meet are not necessarily contiguous: the start **time** and end **time** are the same across the board, but the actual dates can be **random** dates or days of the week.
+
+## Step by step
+
+- [ ] Get ID and code from user
