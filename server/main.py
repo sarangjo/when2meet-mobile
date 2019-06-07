@@ -17,6 +17,7 @@ class Instance:
         self.id = _id
         self.code = code
         self.timeslots = []  # In-order 15-minute intervals
+        self.mode = Mode.WEEKDAY
 
 
 class AvailabilityResponse:
@@ -41,9 +42,92 @@ class Availability:
 
 class ParserState(Enum):
     START = 1
-    PARSER_FOUND_SCRIPT = 2
-    PARSER_LOOKING_FOR_SLOTS_START = 3
-    PARSER_FOUND_SLOTS_START = 4
+    FOUND_SCRIPT = 2
+    LOOKING_FOR_GRID = 3
+    FOUND_GRID = 4
+    LOOKING_FOR_GRID_DATE = 5
+    LOOKING_FOR_SLOTS_START = 10
+    FOUND_SLOTS_START = 11
+
+
+class Mode(Enum):
+    WEEKDAY = 0
+    CALENDAR_DATE = 1
+
+
+class MyHtmlParser(HTMLParser):
+    """
+    1. The top-level <script> tag in the response contains information about availability.
+    (parserFoundScript)
+    2. YouGrid > last child/4th child has the actual grid > all divs except the last are the headers for each column
+    3. The last div from above is the div with id "YouGridSlots" contains a div for each 15-minute timeslot, which
+    in turn have id's starting with "YouTime" followed by the Unix timestamp. From this we can compute all of the
+    timestamps that are in this when2meet.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._state = ParserState.START
+        self._grid_depth = 0
+        self._grid_child_idx = 0
+
+        self.availabilityJs: List[str] = []
+        self.availabilityTimestamps: Dict[int, bool] = collections.OrderedDict()
+        self.mode = Mode.WEEKDAY
+
+    def error(self, message):
+        print(f"Error: {message}")
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, str]]):
+        if self._state == ParserState.START and tag == "script":
+            self._state = ParserState.FOUND_SCRIPT
+        elif self._state == ParserState.LOOKING_FOR_GRID and tag == "div" and ("id", "YouGrid") in attrs:
+            self._state = ParserState.FOUND_GRID
+        elif self._state == ParserState.FOUND_GRID:
+            # Look for the 4th child, that's where we determine whether it's weekday or calendar date mode
+            if self._grid_child_idx == 3 and self._grid_depth == 0:
+                self._state = ParserState.LOOKING_FOR_GRID_DATE
+            elif self._grid_depth == 0:
+                self._grid_child_idx += 1
+
+            # Annoying hack, but br is the only tag that's self-closing without actually being self-closing
+            if tag != "br":
+                self._grid_depth += 1
+        elif self._state == ParserState.LOOKING_FOR_GRID_DATE:
+            if tag == "br":
+                # At this point we didn't find a data element, which means we are in weekday mode
+                self.mode = Mode.WEEKDAY
+                self._state = ParserState.LOOKING_FOR_SLOTS_START
+        elif self._state == ParserState.LOOKING_FOR_SLOTS_START and tag == "div" and (
+                "id", "YouGridSlots") in attrs:
+            self._state = ParserState.FOUND_SLOTS_START
+        elif self._state == ParserState.FOUND_SLOTS_START and tag == "div":
+            valid_timeslot = False
+            timestamp = 0
+            for attr in attrs:
+                if attr[0] == "id" and attr[1].find("YouTime") >= 0:
+                    valid_timeslot = True
+                elif attr[0] == "data-time":
+                    timestamp = int(attr[1])
+
+            if valid_timeslot:
+                self.availabilityTimestamps[timestamp] = True
+
+    def handle_data(self, data: str):
+        if self._state == ParserState.FOUND_SCRIPT:
+            self.availabilityJs = data.split("\n")  # strings.Split(content, "\n")
+            self._state = ParserState.LOOKING_FOR_GRID
+        if self._state == ParserState.LOOKING_FOR_GRID_DATE:
+            if len(data.strip()) > 0:
+                print("Found date! Huzzah.", data)
+                self.mode = Mode.CALENDAR_DATE
+                self._state = ParserState.LOOKING_FOR_SLOTS_START
+
+        # print(data)
+
+    def handle_endtag(self, tag):
+        if self._state == ParserState.FOUND_GRID:
+            self._grid_depth -= 1
 
 
 def get_availability(inst: Instance) -> AvailabilityResponse:
@@ -55,76 +139,26 @@ def get_availability(inst: Instance) -> AvailabilityResponse:
     url = f"https://when2meet.com/AvailabilityGrids.php?id={inst.id}&code={inst.code}"
     r = requests.get(url)
 
-    class MyHtmlParser(HTMLParser):
-        """
-        1. The top-level <script> tag in the response contains information about availability.
-        (parserFoundScript)
-        2. The div with id "YouGridSlots" contains a div for each 15-minute timeslot, which in turn
-        have id's starting with "YouTime" followed by the Unix timestamp. From this we can compute
-        all of the timestamps that are in this when2meet.
-        """
-
-        def __init__(self):
-            super().__init__()
-            self.state = ParserState.START
-            self.availabilityJs: List[str] = []
-            self.availabilityTimestamps: Dict[int, bool] = collections.OrderedDict()
-
-        def error(self, message):
-            print(f"Error: {message}")
-
-        def handle_starttag(self, tag, attrs: List[Tuple[str, str]]):
-            if self.state == ParserState.START and tag == "script":
-                self.state = ParserState.PARSER_FOUND_SCRIPT
-            elif self.state == ParserState.PARSER_LOOKING_FOR_SLOTS_START and tag == "div" and (
-                    "id", "YouGridSlots") in attrs:
-                self.state = ParserState.PARSER_FOUND_SLOTS_START
-            elif self.state == ParserState.PARSER_FOUND_SLOTS_START and tag == "div":
-                valid_timeslot = False
-                timestamp = 0
-                for attr in attrs:
-                    if attr[0] == "id" and attr[1].find("YouTime") >= 0:
-                        valid_timeslot = True
-                    elif attr[0] == "data-time":
-                        timestamp = int(attr[1])
-
-                if valid_timeslot:
-                    self.availabilityTimestamps[timestamp] = True
-
-        def handle_data(self, data: str):
-            if self.state == ParserState.PARSER_FOUND_SCRIPT:
-                self.availabilityJs = data.split("\n")  # strings.Split(content, "\n")
-                self.state = ParserState.PARSER_LOOKING_FOR_SLOTS_START
-
     parser = MyHtmlParser()
     parser.feed(r.text)
 
-    # Transfer set into instance array
+    # Get info from the parser
+    # 1. availability timestamps
     inst.timeslots = parser.availabilityTimestamps.keys()
 
     ar = AvailabilityResponse()
 
-    # Custom parsing through the availabilityJs content in the <script> we parsed out
-    # 1. Id and name
+    # 2. availabilityJs content (Id and name)
     stmts = parser.availabilityJs[0].split(";")
     for i, stmt in enumerate(stmts):
         # strip out space, single quotes, and double quotes
-        if stmt.find("Names") >= 0:
+        if stmt.find("PeopleNames") >= 0:
             ar.avail.append(Availability(0, stmt.split("=")[1].strip(" '\"")))
-        elif stmt.find("IDs") >= 0:
+        elif stmt.find("PeopleIDs") >= 0:
             ar.avail[math.floor(i / 2)].id = int(stmt.split("=")[1].strip(" '\""))
 
-    # 2. Hex parsing
-    hex_index = 1
-    while hex_index < len(parser.availabilityJs):
-        line = parser.availabilityJs[hex_index]
-        if line.find("hexAvailability") >= 0:
-            # TODO
-            n_of_timeslots = 4 * len(line.replace("# hexAvailability: 0", "", 1))
-            print(f"hex gives us {n_of_timeslots} timeslots, html gives us {len(inst.timeslots)}")
-            break
-
-        hex_index += 1
+    # 3. mode
+    inst.mode = parser.mode
 
     return ar
 
@@ -193,7 +227,8 @@ print("Lines with availability found: ", len(result))
 }
 """
 
-kinspireWhen2Meet = Instance(6939716, "nrhEh")
+testCalendarDates = Instance(6939716, "nrhEh")
+testWeekdays = Instance(7885916, "dZacy")
 
 
 def main():
@@ -229,15 +264,15 @@ def main():
     """
 
     # Set up instance for this run
-    inst = kinspireWhen2Meet  # instance{uint(id), code, make([]uint64, 512)}
+    inst = testCalendarDates
 
     ar = get_availability(inst)
 
     print("Full timestamps:")
     print(inst.timeslots)
+    print("Instance mode:", inst.mode)
 
     # addTimestamps(date, ar)
-    print(ar)
 
 
 if __name__ == '__main__':
