@@ -55,7 +55,7 @@ class Mode(Enum):
     CALENDAR_DATE = 1
 
 
-class MyHtmlParser(HTMLParser):
+class AvailabilityParser(HTMLParser):
     """
     1. The top-level <script> tag in the response contains information about availability.
     (parserFoundScript)
@@ -105,7 +105,7 @@ class MyHtmlParser(HTMLParser):
             valid_timeslot = False
             timestamp = 0
             for attr in attrs:
-                if attr[0] == "id" and attr[1].find("YouTime") >= 0:
+                if attr[0] == "id" and "YouTime" in attr[1]:
                     valid_timeslot = True
                 elif attr[0] == "data-time":
                     timestamp = int(attr[1])
@@ -139,7 +139,7 @@ def get_availability(inst: Instance) -> AvailabilityResponse:
     url = f"https://when2meet.com/AvailabilityGrids.php?id={inst.id}&code={inst.code}"
     r = requests.get(url)
 
-    parser = MyHtmlParser()
+    parser = AvailabilityParser()
     parser.feed(r.text)
 
     # Get info from the parser
@@ -152,15 +152,27 @@ def get_availability(inst: Instance) -> AvailabilityResponse:
     stmts = parser.availabilityJs[0].split(";")
     for i, stmt in enumerate(stmts):
         # strip out space, single quotes, and double quotes
-        if stmt.find("PeopleNames") >= 0:
+        if "PeopleNames" in stmt:
             ar.avail.append(Availability(0, stmt.split("=")[1].strip(" '\"")))
-        elif stmt.find("PeopleIDs") >= 0:
+        elif "PeopleIDs" in stmt:
             ar.avail[math.floor(i / 2)].id = int(stmt.split("=")[1].strip(" '\""))
 
     # 3. mode
     inst.mode = parser.mode
 
     return ar
+
+
+def login(inst: Instance, name: str, password="") -> int:
+    print("Logging in...")
+
+    url = f"https://when2meet.com/ProcessLogin.php?id={inst.id}&name={name}&password={password}"
+    r = requests.get(url)
+
+    if "Wrong" in r.text:
+        raise RuntimeError(r.text)
+
+    return int(r.text)
 
 
 # TODO not sure what this is even doing
@@ -264,13 +276,16 @@ def main():
     """
 
     # Set up instance for this run
-    inst = testCalendarDates
+    inst = testWeekdays
 
-    ar = get_availability(inst)
+    if False:
+        ar = get_availability(inst)
 
-    print("Full timestamps:")
-    print(inst.timeslots)
-    print("Instance mode:", inst.mode)
+        print("Full timestamps:")
+        print(inst.timeslots)
+        print("Instance mode:", inst.mode)
+
+    user_id = login(inst, name="Sarang")
 
     # addTimestamps(date, ar)
 

@@ -5,17 +5,17 @@ Important endpoints:
 URL: `https://www.when2meet.com/?6939716-nrhEh`
 
 - `AvailabilityGrids.php`
-    - method: `post`
-    - parameters:
+    - method: `get`
+    - GET parameters:
         - `id=6939716`
         - `code=nrhEh`
         - `participantTimeZone=" + participantTimeZone` (using moment.js)
     - response:
         - a bunch of HTML that shows availability
 - `ProcessLogin.php`
-    - method: `post`
-    - parameters:
-        - `id=6939716"`
+    - method: `get`
+    - GET parameters:
+        - `id=6939716`
         - `name`
         - `password` (plaintext?)
     - response:
@@ -28,7 +28,13 @@ URL: `https://www.when2meet.com/?6939716-nrhEh`
         - `slots=`+TimesToToggle.join(","): a comma-separated list of the actual time slots to save
         - availability="+binaryAvailability: binary representation of availability, starting with the very first quarter-hour and spanning to the end
         - ChangeToAvailable="+ChangeToAvailable,: whether the selection is being set to "available" or "busy"
-    - TODO: WHAT DOES THIS RETURN???
+    - response
+        - empty response content
+    - [ ] This request is not actually doing anything.
+    
+```
+curl 'https://www.when2meet.com/SaveTimes.php' -H 'Origin: https://www.when2meet.com' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.9' -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36' -H 'Content-type: application/x-www-form-urlencoded; charset=UTF-8' -H 'Accept: text/javascript, text/html, application/xml, text/xml, */*' -H 'X-Prototype-Version: 1.6.0' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' -H 'Referer: https://www.when2meet.com/?7885916-dZacy' --data 'person=34306825&event=7885916&slots=279795600&availability=0000000000000000000000000000000000000000000000000000000000000000&ChangeToAvailable=false&_=' --compressed
+```
 
 ## Things to do
 
